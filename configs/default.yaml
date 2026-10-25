@@ -61,6 +61,10 @@ pose:
   # Full 33 are stored; the pose model can subset via this list.
   use_all_keypoints: true
   normalize: true           # scale/translation-invariant normalisation
+  # high-res + crop extraction (fixes low detection on small broadcast batters)
+  read_size: 256            # decode original clip at this resolution for pose
+  crop_size: 256            # upscale the batter crop to this before stage-2 detect
+  crop_margin: 0.35         # padding around the detected person box
 
 model:
   video:
