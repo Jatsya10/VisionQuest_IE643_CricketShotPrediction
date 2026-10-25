@@ -1,0 +1,100 @@
+# ============================================================
+# Vision Quest — IE 643 Course Project
+# Early Prediction of Batting Shot-Type from Cricket Videos
+# Central config. Every path/hyperparameter the pipeline uses.
+# Override any field at the CLI: --set train.epochs=10
+# ============================================================
+
+seed: 42
+
+paths:
+  # Root of the raw dataset after download/extraction.
+  # Kaggle "Cricket Shots - IPL 2023" extracts to a folder of
+  # class-named subdirectories, each holding .mp4/.avi clips.
+  raw_dataset: "data/raw/cricket-shots-ipl-2023"
+  # Derived artefacts (created by the preprocessing scripts).
+  frames_dir: "data/processed/frames"        # per-clip sampled frame tensors (.npy)
+  pose_dir: "data/processed/pose"            # per-clip keypoint sequences (.npy)
+  splits_file: "data/processed/splits.json"  # train/val/test clip lists
+  index_file: "data/processed/index.json"    # clip -> {label, player, path}
+  ckpt_dir: "checkpoints"
+  results_dir: "results"
+  figures_dir: "results/figures"
+
+# ------------------------------------------------------------
+# Shot taxonomy. ADJUST to match the actual folder names in the
+# downloaded dataset — the loader validates against these.
+# The Kaggle IPL-2023 set ships ~7 classes; confirm after download
+# with: python -m src.data.download --inspect
+# ------------------------------------------------------------
+classes:
+  - drive
+  - pull
+  - cut
+  - sweep
+  - flick
+  - slog
+  - misc
+
+data:
+  num_frames: 20            # frames uniformly sampled from a FULL clip
+  img_size: 112             # R3D-18 / 3D-CNN native input is 112x112
+  # Observation ratios: fraction of the (temporally-ordered) frames
+  # the model is allowed to see. 1.0 == full clip (upper bound).
+  observation_ratios: [0.25, 0.50, 0.75, 1.0]
+  # Ratios actually TRAINED on (model sees variable-length prefixes).
+  train_ratios: [0.50, 0.75, 1.0]
+  split:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  # Stratify the split by class so every split keeps all 7 classes.
+  stratify: true
+  # Minimum clips a player must have before a player-specific head
+  # is learned for them (else they fall back to the global head).
+  min_clips_per_player: 15
+
+pose:
+  backend: "mediapipe"      # mediapipe | (yolov8 optional, see extract_pose.py)
+  num_keypoints: 33         # MediaPipe BlazePose full-body landmarks
+  # Keypoints kept for the batter model (upper body + arms + torso).
+  # Full 33 are stored; the pose model can subset via this list.
+  use_all_keypoints: true
+  normalize: true           # scale/translation-invariant normalisation
+
+model:
+  video:
+    backbone: "r3d_18"      # r3d_18 (pretrained Kinetics-400) | cnn_gru
+    pretrained: true
+    dropout: 0.5
+    freeze_stem: false
+  pose:
+    arch: "stgcn"           # stgcn | gru (fallback)
+    hidden: 128
+    num_layers: 3
+    dropout: 0.4
+    player_embedding_dim: 16  # 0 disables the player-specific component
+
+train:
+  epochs: 30
+  batch_size: 8
+  lr: 0.0003
+  weight_decay: 0.0001
+  optimizer: "adamw"
+  scheduler: "cosine"       # cosine | step | none
+  warmup_epochs: 2
+  grad_clip: 1.0
+  # Earliness-aware loss: weight on correct early predictions.
+  # total = CE + earliness_lambda * mean_over_partial_ratios(CE_partial)
+  earliness_lambda: 0.5
+  label_smoothing: 0.05
+  num_workers: 2
+  amp: true                 # mixed precision (CUDA only)
+  early_stop_patience: 7
+
+eval:
+  topk: [1, 3, 5]
+  # "likely/unlikely" threshold for the pose branch's per-class scores.
+  pose_likely_threshold: 0.5
+
+device: "auto"              # auto | cuda | mps | cpu

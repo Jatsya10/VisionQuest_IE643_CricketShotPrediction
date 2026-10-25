@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+data/raw/
+data/processed/
+checkpoints/
+results/
+*.pt
+*.npy
+.DS_Store
+.ipynb_checkpoints/
+kaggle.json
+*.mp4
+*.avi
+!assets/*.mp4
+venv/
+.env

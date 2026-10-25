@@ -1,0 +1,226 @@
+% ============================================================================
+% IE 643 Course Project — Intensive Assessment Report
+% Team Vision Quest — Early Prediction of Batting Shot-Type from Cricket Videos
+%
+% >>> READ THIS FIRST <<<
+% The instructions award ZERO if the report is AI-generated text or copy-paste
+% from papers, and a plagiarism check is run. So:
+%   * The structure, tables, figure hooks, math and references below are a
+%     SCAFFOLD. They match the required section list exactly.
+%   * REWRITE every \TODO{...} and every body paragraph IN YOUR OWN WORDS,
+%     describing what YOUR team actually did and found. Do not submit the
+%     placeholder prose as-is.
+%   * Fill the RESULT numbers from results/temporal_results.json after training.
+%
+% If the official template (IE643_Project_Report.tex from the Drive folder) has
+% a specific \documentclass / packages, paste THESE SECTION BODIES into it.
+% This file compiles standalone on Overleaf (pdfLaTeX) as a fallback.
+% ============================================================================
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx,booktabs,amsmath,amssymb,hyperref,xcolor,enumitem}
+\usepackage{caption}
+\usepackage{authblk}
+\hypersetup{colorlinks=true,linkcolor=black,citecolor=blue,urlcolor=blue}
+\newcommand{\TODO}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\NUM}[1]{\textcolor{blue}{#1}}   % fill with real numbers, then remove colour
+
+\title{\textbf{Early Prediction of Batting Shot-Type from Cricket Videos}\\
+\large IE 643 Course Project --- Intensive Assessment Report}
+\author{Team Vision Quest \\ \TODO{Member 1 Name (Roll No.)} \and \TODO{Member 2 Name (Roll No.)}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ----------------------------------------------------------------------------
+\begin{abstract}
+\TODO{Write 150--200 words in your own words.} We address early prediction of a
+batter's cricket shot before the stroke is completed. We study two complementary
+settings: a video model that predicts the Top-3/Top-5 shot type from only the
+first 50\% and 75\% of a clip, and a player-specific pose model that scores shots
+as likely/unlikely from the batter's body-keypoint sequence. On the
+Cricket Shots -- IPL 2023 dataset (7 classes), our video branch
+(R3D-18) reaches a full-clip Top-1 accuracy of \NUM{XX.X\%} and retains
+\NUM{XX.X\%} at 50\% observation; the pose branch reaches \NUM{XX.X\%} Top-1.
+A temporal analysis shows reliable predictions emerge by \NUM{XX\%} of the clip.
+\TODO{State the single most important finding in one sentence.}
+\end{abstract}
+
+% ----------------------------------------------------------------------------
+\section{Introduction}
+\TODO{Rewrite fully.} Anticipating a batter's shot before contact has direct value
+for broadcast analytics, coaching feedback and fielding decisions. Human experts
+read early cues --- stance, backlift, trigger movement --- well before bat--ball
+contact, which motivates asking whether a model can do the same from partial
+video. We frame this as \emph{early action prediction}: given only an initial
+fraction of a shot clip, predict the final shot label. We also ask whether body
+pose alone carries enough early signal, and whether modelling individual batters
+helps. \TODO{Explain why deep learning (spatiotemporal CNNs, graph networks on
+skeletons) is the right tool here, in your words.}
+
+% ----------------------------------------------------------------------------
+\section{Workflow}
+\TODO{Convert to your actual timeline.}
+\begin{itemize}[nosep]
+  \item Problem framing: defined Setting A (video, Top-k) and Setting B (pose, likely/unlikely).
+  \item Dataset: adopted Cricket Shots -- IPL 2023 (7 classes); built a stratified train/val/test split.
+  \item Preprocessing: uniform 20-frame sampling per clip; MediaPipe BlazePose keypoint extraction.
+  \item Modelling: R3D-18 video branch; compact ST-GCN pose branch with optional player embedding.
+  \item Early-prediction training: prefix-masking datasets + earliness-aware loss.
+  \item Evaluation: Top-k, per-class F1, MRR; temporal analysis across observation ratios.
+  \item Interface: Gradio demo for live testing.
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\section{Related Work}
+\TODO{Write 2--3 paragraphs IN YOUR OWN WORDS summarising these; do not copy abstracts.}
+\begin{itemize}[nosep]
+  \item \textbf{Early action prediction / anticipation.} \cite{kong2018survey,aliakbarian2017}
+        --- observation-ratio protocol and losses that reward early correctness.
+  \item \textbf{Spatiotemporal \& skeleton backbones.} \cite{feichtenhofer2019slowfast,yan2018stgcn}
+        --- 3D-CNNs for video; ST-GCN for skeleton sequences.
+  \item \textbf{Cricket shot classification.} \cite{rajarajeswari2026,sen2021cricshot}
+        --- prior work classifies \emph{completed} clips; we extend to the early/pose/player setting.
+\end{itemize}
+
+% ----------------------------------------------------------------------------
+\section{Methods and Approaches}
+\subsection{Work before the prep-presentation review}
+\TODO{Describe the literature survey, dataset selection and system design done
+pre-prep, in your words.}
+
+\subsection{Work after the prep-presentation review}
+\TODO{Describe the implementation and experiments done after prep, in your words.}
+
+\subsection{Setting A --- Early video-based prediction}
+Let a clip be sampled into $T$ ordered frames. For observation ratio $g\in(0,1]$
+the model sees only the first $k=\lceil gT\rceil$ frames; the remainder are
+replaced by a repeat of the $k$-th frame to keep the 3D-CNN input length fixed.
+The backbone is R3D-18 (ResNet-18 3D, pretrained on Kinetics-400); its final
+layer is replaced by a $C$-class head ($C=7$). \TODO{Explain in your words why a
+3D-CNN suits spatiotemporal shot cues.}
+
+\paragraph{Earliness-aware loss.} With cross-entropy $\mathrm{CE}$ and a forced
+early view $x_e$ (future frames masked at the smallest training ratio),
+\begin{equation}
+\mathcal{L} = \mathrm{CE}(f(x), y) + \lambda\, \mathrm{CE}(f(x_e), y),
+\end{equation}
+so correct predictions from few frames are explicitly rewarded (after
+\cite{aliakbarian2017}). We use $\lambda=\NUM{0.5}$, label smoothing $\NUM{0.05}$.
+
+\subsection{Setting B --- Player-specific pose model}
+MediaPipe BlazePose gives 33 keypoints per frame, normalised to be
+translation/scale invariant (centred on mid-hip, scaled by torso length). A
+compact ST-GCN \cite{yan2018stgcn} treats the skeleton as a spatio-temporal
+graph; a learnable edge-importance mask weights joint connections. An optional
+player-embedding is concatenated before the classifier and is learned only for
+batters with $\geq \NUM{15}$ clips, so the model falls back to a global pose
+model when player data is scarce. Output logits give Top-k ranking (softmax) and
+likely/unlikely decisions (sigmoid $>$ threshold). \TODO{Explain why pose is a
+complementary signal to pixels, in your words.}
+
+% ----------------------------------------------------------------------------
+\section{Data}
+\textbf{Source.} Cricket Shots -- IPL 2023, Kaggle (Apache-2.0),
+\url{https://www.kaggle.com/datasets/taarunsridhar/cricket-shots-ipl-2023}.
+\textbf{Type.} Short RGB broadcast video clips, one batting shot each.
+\textbf{Classes ($C=7$).} \TODO{list exact folder names after \texttt{download --inspect}}:
+drive, pull, cut, sweep, flick, slog, misc.
+\textbf{Size.} \TODO{total clips = \NUM{N}; per-class counts in Table~\ref{tab:data}.}
+\textbf{Split.} Stratified \NUM{70}/\NUM{15}/\NUM{15} train/val/test.
+\textbf{Preprocessing.} 20 frames uniformly sampled per clip, resized to
+$112\times112$; Kinetics normalisation for the video branch; per-frame BlazePose
+keypoints for the pose branch. Partial clips (25/50/75\%) are derived by prefix
+masking. \textbf{Player labels} are parsed from filenames where present,
+else \texttt{unknown}.
+
+\begin{table}[h]\centering
+\caption{Dataset composition (fill from \texttt{download --inspect}).}
+\label{tab:data}
+\begin{tabular}{lccccccc}
+\toprule
+Class & drive & pull & cut & sweep & flick & slog & misc \\
+\midrule
+\# clips & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ----------------------------------------------------------------------------
+\section{Experiments}
+\textbf{Code.} \TODO{GitHub link:} \url{https://github.com/<YOUR_USERNAME>/VisionQuest_IE643_CricketShotPrediction}.
+\textbf{Hardware.} \TODO{e.g. Google Colab, NVIDIA T4 16\,GB.}
+\textbf{Training.} AdamW, lr \NUM{3e-4} (video) / \NUM{9e-4} (pose), weight decay
+\NUM{1e-4}, cosine schedule with \NUM{2}-epoch warmup, batch size \NUM{8}
+(video), gradient clip \NUM{1.0}, mixed precision, up to \NUM{30} epochs with
+early stopping (patience \NUM{7}). The video dataset draws a random observation
+ratio from $\{0.5,0.75,1.0\}$ per sample so one model serves all horizons.
+\TODO{Report any other settings you actually used.}
+
+% ----------------------------------------------------------------------------
+\section{Results}
+\TODO{Fill every number from results/temporal\_results.json and insert the saved figures.}
+
+\begin{table}[h]\centering
+\caption{Accuracy vs.\ observation ratio (test split).}
+\label{tab:acc}
+\begin{tabular}{lcccc}
+\toprule
+Observation ratio & 25\% & 50\% & 75\% & 100\% \\
+\midrule
+Video Top-1 & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+Video Top-3 & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+Video Top-5 & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+Pose Top-1  & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+Pose Top-3  & \NUM{--} & \NUM{--} & \NUM{--} & \NUM{--} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.7\linewidth]{../results/figures/accuracy_vs_ratio.png}
+\caption{Early-prediction accuracy vs.\ observed clip fraction.}
+\label{fig:curve}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.48\linewidth]{../results/figures/confusion_video_full.png}
+\includegraphics[width=0.48\linewidth]{../results/figures/perclass_f1.png}
+\caption{Left: confusion matrix (video, full clip). Right: per-class F1.}
+\label{fig:cm}
+\end{figure}
+
+\textbf{Inferences.} \TODO{In your words: which shots are hardest early and why;
+the earliness ratio (\NUM{--}); video vs.\ pose comparison; whether the
+player-specific head helped; comparison to the 95.6\% full-clip reference of
+\cite{rajarajeswari2026}.}
+
+% ----------------------------------------------------------------------------
+\section{Plan for Novelty Assessment}
+\TODO{Pick ONE and detail it.} Candidate extensions beyond the brief:
+(i) bowling-type conditioning (pace vs.\ spin) as an auxiliary input;
+(ii) fusing the video and pose branches (late fusion) and measuring earliness gain;
+(iii) an uncertainty-aware early-exit that stops as soon as confidence crosses a
+threshold, reporting \emph{how early} per shot. \TODO{State what you will build,
+how you will evaluate it, and why it is novel relative to prior work.}
+
+% ----------------------------------------------------------------------------
+\section{Conclusion}
+\TODO{Rewrite.} We built an end-to-end system for early cricket-shot prediction
+in two settings and analysed how accuracy grows with observation. \TODO{State
+the main quantitative takeaway and its significance in your own words.}
+
+% ----------------------------------------------------------------------------
+\begin{thebibliography}{9}
+\bibitem{kong2018survey} Yu Kong and Yun Fu. Human Action Recognition and Prediction: A Survey. \textit{arXiv}, 2018. \url{https://arxiv.org/abs/1806.11230}
+\bibitem{aliakbarian2017} Mohammad Sadegh Aliakbarian, Fatemehsadat Saleh, Mathieu Salzmann, Basura Fernando, Lars Petersson and Lars Andersson. Encouraging LSTMs to Anticipate Actions Very Early. \textit{ICCV}, 2017. \url{https://arxiv.org/abs/1703.07023}
+\bibitem{feichtenhofer2019slowfast} Christoph Feichtenhofer, Haoqi Fan, Jitendra Malik and Kaiming He. SlowFast Networks for Video Recognition. \textit{ICCV}, 2019. \url{https://arxiv.org/abs/1812.03982}
+\bibitem{yan2018stgcn} Sijie Yan, Yuanjun Xiong and Dahua Lin. Spatial Temporal Graph Convolutional Networks for Skeleton-Based Action Recognition. \textit{AAAI}, 2018. \url{https://arxiv.org/abs/1801.07455}
+\bibitem{rajarajeswari2026} S. Rajarajeswari, Devika Prashant, Jayanth Srinivasan and Tejaswini Dubey. Deep Learning Based Cricket Batting Shot Classification and Performance Analysis Using Computer Vision. \textit{Scientific Reports}, 2026. \url{https://www.nature.com/articles/s41598-026-52617-1}
+\bibitem{sen2021cricshot} Anik Sen, Kaushik Deb, Pranab Kumar Dhar and Takeshi Koshiba. CricShotClassify: An Approach to Classifying Batting Shots from Cricket Videos Using a CNN and GRU. \textit{Sensors}, 2021. \url{https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8072636/}
+\bibitem{mediapipe} Valentin Bazarevsky and Ivan Grishchenko. On-Device, Real-Time Body Pose Tracking with MediaPipe BlazePose. \textit{Google Research Blog}, 2020. \url{https://research.google/blog/on-device-real-time-body-pose-tracking-with-mediapipe-blazepose/}. Accessed on: 25th October, 2026.
+\bibitem{kaggleds} Taarun Sridhar. Cricket Shots -- IPL 2023 [dataset]. \url{https://www.kaggle.com/datasets/taarunsridhar/cricket-shots-ipl-2023}. Accessed on: 25th October, 2026.
+\end{thebibliography}
+
+\end{document}
