@@ -63,10 +63,11 @@ class Engine:
         return m, p2i
 
     def _pose_detector(self):
+        # Reuse the robust backend from preprocessing (handles both the legacy
+        # solutions.pose API and the new Tasks PoseLandmarker API).
         if self._mp is None:
-            import mediapipe as mp
-            self._mp = mp.solutions.pose.Pose(static_image_mode=True, model_complexity=1,
-                                              min_detection_confidence=0.5)
+            from src.data.extract_pose import make_backend
+            self._mp = make_backend()
         return self._mp
 
     def _mask_video(self, frames, ratio):
@@ -104,19 +105,17 @@ class Engine:
         pose_txt = "Pose model not loaded."
         overlay = None
         det = self._pose_detector()
-        res = det.process(frames[min(len(frames)-1, seen_count(self.num_frames, ratio)-1)])
-        if res.pose_landmarks:
-            lm = res.pose_landmarks.landmark
-            kp_xy = np.array([[p.x, p.y] for p in lm], dtype=np.float32)
-            overlay = draw_pose_on_frame(
-                frames[min(len(frames)-1, seen_count(self.num_frames, ratio)-1)], kp_xy)
+        anchor = min(len(frames) - 1, seen_count(self.num_frames, ratio) - 1)
+        kp_anchor = det.detect(frames[anchor])          # (33,3) raw or None
+        if kp_anchor is not None:
+            kp_xy = kp_anchor[:, :2]
+            overlay = draw_pose_on_frame(frames[anchor], kp_xy)
         if self.pose is not None:
             seq = np.zeros((self.num_frames, 33, 3), dtype=np.float32)
             kk = seen_count(self.num_frames, ratio)
             for t in range(kk):
-                r = det.process(frames[t])
-                if r.pose_landmarks:
-                    raw = np.array([[p.x, p.y, p.visibility] for p in r.pose_landmarks.landmark], np.float32)
+                raw = det.detect(frames[t])
+                if raw is not None:
                     seq[t] = normalize_pose(raw)
             st = torch.from_numpy(seq).unsqueeze(0).to(self.device)
             pid = torch.zeros(1, dtype=torch.long, device=self.device)
